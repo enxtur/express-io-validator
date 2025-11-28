@@ -2,8 +2,17 @@
   "name": "express-io-validator",
   "version": "0.0.1",
   "description": "Express middleware for type-safe runtime validation using io-ts. TypeScript-first with full type inference.",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon --watch src --watch sample --exec ts-node sample/index.ts"
   },

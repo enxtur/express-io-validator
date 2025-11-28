@@ -2,50 +2,7 @@ import { NextFunction, Request, Response } from "express";
 import { isLeft } from "fp-ts/lib/Either";
 import * as t from "io-ts";
 
-export const validate = <T>(schema: t.Type<T>, errorHandler?: ErrorHandler) => {
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const result = schema.decode(req.body);
-    if (isLeft(result)) {
-      if (errorHandler) {
-        const error = errorHandler(result.left);
-        res.status(400).json(error);
-      } else {
-        res.status(400).json({ errors: result.left });
-      }
-      return;
-    }
-    req.body = result.right;
-    next();
-  };
-};
-
-interface TypedRequest<T extends t.Any> extends Request {
-  body: t.TypeOf<T>;
-}
-
-export const validatedRoute = <T extends t.Any>(
-  schema: T,
-  handler: (
-    req: TypedRequest<typeof schema>,
-    res: Response
-  ) => void | Promise<void>
-) => {
-  return [validate(schema), handler];
-};
-
-const validatedRouteWithErrorHandler = (errorHandler: ErrorHandler) => {
-  return <T extends t.Any>(
-    schema: T,
-    handler: (
-      req: TypedRequest<typeof schema>,
-      res: Response
-    ) => void | Promise<void>
-  ) => {
-    return [validate(schema, errorHandler), handler];
-  };
-};
-
-type ErrorHandler = (error: t.Errors) => any;
+type ErrorHandler = (error: t.Errors) => unknown;
 
 type DefaultErrors = {
   key: string;
@@ -54,7 +11,25 @@ type DefaultErrors = {
   message: string;
 };
 
-const defaultErrorHandler: ErrorHandler = (error): DefaultErrors[] => {
+type TypedRequest<T extends t.Any> = Request<any, any, t.TypeOf<T>, any>;
+
+type ValidationMiddleware<T extends t.Any> = (
+  req: TypedRequest<T>,
+  res: Response,
+  next: NextFunction
+) => void;
+
+type ValidatedHandler<T extends t.Any> = (
+  req: TypedRequest<T>,
+  res: Response
+) => void | Promise<void>;
+
+type ValidationPipeline<T extends t.Any> = [
+  ValidationMiddleware<T>,
+  ValidatedHandler<T>
+];
+
+const formatValidationErrors = (error: t.Errors): DefaultErrors[] => {
   return error.map((err) => {
     const path = err.context
       .slice(1)
@@ -78,6 +53,47 @@ const defaultErrorHandler: ErrorHandler = (error): DefaultErrors[] => {
       message,
     };
   });
+};
+
+const defaultErrorHandler: ErrorHandler = (error) => {
+  return formatValidationErrors(error);
+};
+
+export const validate = <T extends t.Any>(
+  schema: T,
+  errorHandler?: ErrorHandler
+): ValidationMiddleware<T> => {
+  return (req, res, next): void => {
+    const result = schema.decode(req.body);
+
+    if (isLeft(result)) {
+      const payload =
+        errorHandler?.(result.left) ?? {
+          errors: formatValidationErrors(result.left),
+        };
+      res.status(400).json(payload);
+      return;
+    }
+
+    req.body = result.right;
+    next();
+  };
+};
+
+export const validatedRoute = <T extends t.Any>(
+  schema: T,
+  handler: ValidatedHandler<T>
+): ValidationPipeline<T> => {
+  return [validate(schema), handler];
+};
+
+const validatedRouteWithErrorHandler = (errorHandler: ErrorHandler) => {
+  return <T extends t.Any>(
+    schema: T,
+    handler: ValidatedHandler<T>
+  ): ValidationPipeline<T> => {
+    return [validate(schema, errorHandler), handler];
+  };
 };
 
 export const Validator = (errorHandler?: ErrorHandler) => {

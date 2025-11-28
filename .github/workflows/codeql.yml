@@ -22,12 +22,12 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: javascript # Specify the language(s) to analyze
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3 # For compiled languages, attempts to build the project
+        uses: github/codeql-action/autobuild@v4 # For compiled languages, attempts to build the project
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4

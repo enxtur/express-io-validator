@@ -1,6 +1,6 @@
 {
   "name": "express-io-validator",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Express middleware for type-safe runtime validation using io-ts. TypeScript-first with full type inference.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

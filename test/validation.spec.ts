@@ -1,8 +1,8 @@
-import { test, describe } from "node:test";
-import assert from "node:assert";
-import { Request, Response, NextFunction } from "express";
+import { NextFunction, Request, Response } from "express";
 import * as t from "io-ts";
-import { validate, validatedRoute, Validator } from "../src/index.js";
+import assert from "node:assert";
+import { describe, test } from "node:test";
+import { validateBody, validatedRoute, Validator } from "../src/index.js";
 
 // Mock Express types
 type MockRequest = Partial<Request> & {
@@ -64,7 +64,7 @@ describe("validate middleware", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    validate(schema)(req as Request, res as Response, next);
+    validateBody(schema)(req as Request, res as Response, next);
 
     assert.strictEqual(next.called, true);
     assert.strictEqual(next.error, undefined);
@@ -83,7 +83,7 @@ describe("validate middleware", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    validate(schema)(req as Request, res as Response, next);
+    validateBody(schema)(req as Request, res as Response, next);
 
     assert.strictEqual(next.called, false);
     assert.strictEqual(res.statusCode, 400);
@@ -105,7 +105,11 @@ describe("validate middleware", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    validate(schema, customErrorHandler)(req as Request, res as Response, next);
+    validateBody(schema, customErrorHandler)(
+      req as Request,
+      res as Response,
+      next
+    );
 
     assert.strictEqual(next.called, false);
     assert.strictEqual(res.statusCode, 400);
@@ -125,7 +129,7 @@ describe("validate middleware", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    validate(schema)(req as Request, res as Response, next);
+    validateBody(schema)(req as Request, res as Response, next);
 
     assert.strictEqual(next.called, true);
     assert.strictEqual(req.body.user.name, "John");
@@ -141,7 +145,7 @@ describe("validate middleware", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    validate(schema)(req as Request, res as Response, next);
+    validateBody(schema)(req as Request, res as Response, next);
 
     assert.strictEqual(next.called, true);
     assert.deepStrictEqual(req.body.items, ["a", "b", "c"]);
@@ -157,7 +161,7 @@ describe("validate middleware", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    validate(schema)(req as Request, res as Response, next);
+    validateBody(schema)(req as Request, res as Response, next);
 
     assert.strictEqual(next.called, true);
     assert.strictEqual(req.body.name, "John");
@@ -173,7 +177,7 @@ describe("validate middleware", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    validate(schema)(req as Request, res as Response, next);
+    validateBody(schema)(req as Request, res as Response, next);
 
     assert.strictEqual(next.called, true);
     assert.strictEqual(req.body.type, "A");
@@ -189,7 +193,7 @@ describe("validate middleware", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    validate(schema)(req as Request, res as Response, next);
+    validateBody(schema)(req as Request, res as Response, next);
 
     assert.strictEqual(next.called, false);
     assert.strictEqual(res.statusCode, 400);
@@ -285,7 +289,7 @@ describe("Validator factory", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    const [middleware] = validator.validate(schema, () => {});
+    const [middleware] = validator.validateBody(schema, () => {});
 
     middleware(req as Request, res as Response, next);
 
@@ -313,7 +317,7 @@ describe("Validator factory", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    const [middleware] = validator.validate(schema, () => {});
+    const [middleware] = validator.validateBody(schema, () => {});
 
     middleware(req as Request, res as Response, next);
 
@@ -332,7 +336,7 @@ describe("Validator factory", () => {
 
     let handlerCalled = false;
 
-    const [middleware, handler] = validator.validate(schema, (req, res) => {
+    const [middleware, handler] = validator.validateBody(schema, (req, res) => {
       handlerCalled = true;
       res.json({ name: req.body.name, age: req.body.age });
     });
@@ -372,7 +376,7 @@ describe("default error handler", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    const [middleware] = validator.validate(schema, () => {});
+    const [middleware] = validator.validateBody(schema, () => {});
     middleware(req as Request, res as Response, next);
 
     assert.strictEqual(res.statusCode, 400);
@@ -409,7 +413,7 @@ describe("default error handler", () => {
     const res = createMockResponse();
     const next = createMockNext();
 
-    const [middleware] = validator.validate(schema, () => {});
+    const [middleware] = validator.validateBody(schema, () => {});
     middleware(req as Request, res as Response, next);
 
     assert.strictEqual(res.statusCode, 400);

@@ -59,7 +59,7 @@ const defaultErrorHandler: ErrorHandler = (error) => {
   return formatValidationErrors(error);
 };
 
-export const validate = <T extends t.Any>(
+export const validateBody = <T extends t.Any>(
   schema: T,
   errorHandler?: ErrorHandler
 ): ValidationMiddleware<T> => {
@@ -67,10 +67,9 @@ export const validate = <T extends t.Any>(
     const result = schema.decode(req.body);
 
     if (isLeft(result)) {
-      const payload =
-        errorHandler?.(result.left) ?? {
-          errors: formatValidationErrors(result.left),
-        };
+      const payload = errorHandler?.(result.left) ?? {
+        errors: formatValidationErrors(result.left),
+      };
       res.status(400).json(payload);
       return;
     }
@@ -84,21 +83,21 @@ export const validatedRoute = <T extends t.Any>(
   schema: T,
   handler: ValidatedHandler<T>
 ): ValidationPipeline<T> => {
-  return [validate(schema), handler];
+  return [validateBody(schema), handler];
 };
 
-const validatedRouteWithErrorHandler = (errorHandler: ErrorHandler) => {
+const validateBodyWithErrorHandler = (errorHandler: ErrorHandler) => {
   return <T extends t.Any>(
     schema: T,
     handler: ValidatedHandler<T>
   ): ValidationPipeline<T> => {
-    return [validate(schema, errorHandler), handler];
+    return [validateBody(schema, errorHandler), handler];
   };
 };
 
 export const Validator = (errorHandler?: ErrorHandler) => {
   return {
-    validate: validatedRouteWithErrorHandler(
+    validateBody: validateBodyWithErrorHandler(
       errorHandler ?? defaultErrorHandler
     ),
   };

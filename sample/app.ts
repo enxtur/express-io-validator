@@ -3,7 +3,7 @@ import express from "express";
 import * as t from "io-ts";
 import { Validator } from "../src";
 
-const { validate } = Validator((error) => {
+const { validateBody } = Validator((error) => {
   return {
     errors: error.flatMap((err) => {
       return err.context.map((c) => ({
@@ -32,7 +32,7 @@ const CODEC = t.type({
 
 app.post(
   "/users",
-  validate(CODEC, (req, res) => {
+  validateBody(CODEC, (req, res) => {
     res.json({
       name: req.body.name,
       age: req.body.age,
@@ -59,7 +59,7 @@ const CODEC2 = t.union([
 
 app.post(
   "/users2",
-  validate(CODEC2, (req, res) => {
+  validateBody(CODEC2, (req, res) => {
     res.json(req.body);
   })
 );

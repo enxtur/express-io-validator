@@ -2,6 +2,10 @@ import { NextFunction, Request, Response } from "express";
 import { isLeft } from "fp-ts/lib/Either";
 import * as t from "io-ts";
 
+// ============================================================================
+// Types
+// ============================================================================
+
 type ErrorHandler = (error: t.Errors) => unknown;
 
 type DefaultErrors = {
@@ -11,6 +15,7 @@ type DefaultErrors = {
   message: string;
 };
 
+// Request/Response types
 type TypedBodyRequest<T extends t.Any> = Request<any, any, t.TypeOf<T>, any>;
 type TypedQueryResponse<T extends t.Any> = Response<
   any,
@@ -19,39 +24,6 @@ type TypedQueryResponse<T extends t.Any> = Response<
   }
 >;
 type TypedParamsRequest<T extends t.Any> = Request<t.TypeOf<T>, any, any, any>;
-
-type TypedBodyValidationMiddleware<T extends t.Any> = (
-  req: TypedBodyRequest<T>,
-  res: Response,
-  next: NextFunction
-) => void;
-
-type TypedQueryValidationMiddleware<T extends t.Any> = (
-  req: Request,
-  res: TypedQueryResponse<T>,
-  next: NextFunction
-) => void;
-
-type TypedParamsValidationMiddleware<T extends t.Any> = (
-  req: TypedParamsRequest<T>,
-  res: Response,
-  next: NextFunction
-) => void;
-
-type TypedBodyValidatedHandler<T extends t.Any> = (
-  req: TypedBodyRequest<T>,
-  res: Response
-) => void | Promise<void>;
-
-type TypedQueryValidatedHandler<T extends t.Any> = (
-  req: Request,
-  res: TypedQueryResponse<T>
-) => void | Promise<void>;
-
-type TypedParamsValidatedHandler<T extends t.Any> = (
-  req: TypedParamsRequest<T>,
-  res: Response
-) => void | Promise<void>;
 
 type TypedCombinedRequest<
   Q extends t.Any,
@@ -77,6 +49,25 @@ type TypedCombinedResponse<
   }
 >;
 
+// Middleware types
+type TypedBodyValidationMiddleware<T extends t.Any> = (
+  req: TypedBodyRequest<T>,
+  res: Response,
+  next: NextFunction
+) => void;
+
+type TypedQueryValidationMiddleware<T extends t.Any> = (
+  req: Request,
+  res: TypedQueryResponse<T>,
+  next: NextFunction
+) => void;
+
+type TypedParamsValidationMiddleware<T extends t.Any> = (
+  req: TypedParamsRequest<T>,
+  res: Response,
+  next: NextFunction
+) => void;
+
 type TypedCombinedValidationMiddleware<
   Q extends t.Any,
   P extends t.Any,
@@ -87,6 +78,22 @@ type TypedCombinedValidationMiddleware<
   next: NextFunction
 ) => void;
 
+// Handler types
+type TypedBodyValidatedHandler<T extends t.Any> = (
+  req: TypedBodyRequest<T>,
+  res: Response
+) => void | Promise<void>;
+
+type TypedQueryValidatedHandler<T extends t.Any> = (
+  req: Request,
+  res: TypedQueryResponse<T>
+) => void | Promise<void>;
+
+type TypedParamsValidatedHandler<T extends t.Any> = (
+  req: TypedParamsRequest<T>,
+  res: Response
+) => void | Promise<void>;
+
 type TypedValidatedHandler<
   Q extends t.Any,
   P extends t.Any,
@@ -96,6 +103,7 @@ type TypedValidatedHandler<
   res: TypedCombinedResponse<Q, P, B>
 ) => void | Promise<void>;
 
+// Pipeline types
 type TypedBodyValidationPipeline<T extends t.Any> = [
   TypedBodyValidationMiddleware<T>,
   TypedBodyValidatedHandler<T>
@@ -121,6 +129,10 @@ type TypedValidationPipeline<
   TypedCombinedValidationMiddleware<Q, P, B>,
   TypedValidatedHandler<Q, P, B>
 ];
+
+// ============================================================================
+// Error handling
+// ============================================================================
 
 const formatValidationErrors = (error: t.Errors): DefaultErrors[] => {
   return error.map((err) => {
@@ -152,17 +164,31 @@ const defaultErrorHandler: ErrorHandler = (error) => {
   return formatValidationErrors(error);
 };
 
-export const validateBody = <T extends t.Any>(
-  schema?: T,
+// ============================================================================
+// Validation middleware factory
+// ============================================================================
+
+type ValidationSource = "body" | "query" | "params";
+
+const createValidationMiddleware = <T extends t.Any>(
+  schema: T | undefined,
+  source: ValidationSource,
   errorHandler?: ErrorHandler
-): TypedBodyValidationMiddleware<T> => {
-  return (req, res, next): void => {
+) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     if (!schema) {
       next();
       return;
     }
 
-    const result = schema.decode(req.body);
+    const data =
+      source === "body"
+        ? req.body
+        : source === "query"
+          ? req.query
+          : req.params;
+
+    const result = schema.decode(data);
 
     if (isLeft(result)) {
       const payload = errorHandler?.(result.left) ?? {
@@ -172,136 +198,81 @@ export const validateBody = <T extends t.Any>(
       return;
     }
 
-    req.body = result.right;
+    const validatedValue = result.right;
+
+    // Set validated value based on source
+    if (source === "body") {
+      req.body = validatedValue;
+    } else if (source === "query") {
+      res.locals.typedQuery = validatedValue;
+    } else {
+      req.params = validatedValue;
+    }
+
     next();
   };
+};
+
+// ============================================================================
+// Public validation middleware
+// ============================================================================
+
+export const validateBody = <T extends t.Any>(
+  schema?: T,
+  errorHandler?: ErrorHandler
+): TypedBodyValidationMiddleware<T> => {
+  return createValidationMiddleware(schema, "body", errorHandler) as TypedBodyValidationMiddleware<T>;
 };
 
 export const validateQuery = <T extends t.Any>(
   schema?: T,
   errorHandler?: ErrorHandler
 ): TypedQueryValidationMiddleware<T> => {
-  return (req, res, next): void => {
-    if (!schema) {
-      next();
-      return;
-    }
-
-    const result = schema.decode(req.query);
-
-    if (isLeft(result)) {
-      const payload = errorHandler?.(result.left) ?? {
-        errors: formatValidationErrors(result.left),
-      };
-      res.status(400).json(payload);
-      return;
-    }
-
-    res.locals.typedQuery = result.right;
-    next();
-  };
+  return createValidationMiddleware(schema, "query", errorHandler) as TypedQueryValidationMiddleware<T>;
 };
 
 export const validateParams = <T extends t.Any>(
   schema?: T,
   errorHandler?: ErrorHandler
 ): TypedParamsValidationMiddleware<T> => {
-  return (req, res, next): void => {
-    if (!schema) {
-      next();
-      return;
-    }
-
-    const result = schema.decode(req.params);
-
-    if (isLeft(result)) {
-      const payload = errorHandler?.(result.left) ?? {
-        errors: formatValidationErrors(result.left),
-      };
-      res.status(400).json(payload);
-      return;
-    }
-
-    req.params = result.right;
-    next();
-  };
+  return createValidationMiddleware(schema, "params", errorHandler) as TypedParamsValidationMiddleware<T>;
 };
+
+// ============================================================================
+// Combined validation middleware
+// ============================================================================
 
 const createCombinedQueryMiddleware = <Q extends t.Any>(
   schema: Q | undefined,
   errorHandler?: ErrorHandler
 ): TypedCombinedValidationMiddleware<Q, any, any> => {
-  return (req, res, next): void => {
-    if (!schema) {
-      next();
-      return;
-    }
-
-    const result = schema.decode(req.query);
-
-    if (isLeft(result)) {
-      const payload = errorHandler?.(result.left) ?? {
-        errors: formatValidationErrors(result.left),
-      };
-      res.status(400).json(payload);
-      return;
-    }
-
-    res.locals.typedQuery = result.right;
-    next();
-  };
+  return createValidationMiddleware(schema, "query", errorHandler) as TypedCombinedValidationMiddleware<Q, any, any>;
 };
 
 const createCombinedParamsMiddleware = <P extends t.Any>(
   schema: P | undefined,
   errorHandler?: ErrorHandler
 ): TypedCombinedValidationMiddleware<any, P, any> => {
-  return (req, res, next): void => {
-    if (!schema) {
+  const middleware = createValidationMiddleware(schema, "params", errorHandler);
+  return ((req, res, next) => {
+    middleware(req, res, () => {
+      res.locals.typedParams = req.params;
       next();
-      return;
-    }
-
-    const result = schema.decode(req.params);
-
-    if (isLeft(result)) {
-      const payload = errorHandler?.(result.left) ?? {
-        errors: formatValidationErrors(result.left),
-      };
-      res.status(400).json(payload);
-      return;
-    }
-
-    req.params = result.right;
-    res.locals.typedParams = result.right;
-    next();
-  };
+    });
+  }) as TypedCombinedValidationMiddleware<any, P, any>;
 };
 
 const createCombinedBodyMiddleware = <B extends t.Any>(
   schema: B | undefined,
   errorHandler?: ErrorHandler
 ): TypedCombinedValidationMiddleware<any, any, B> => {
-  return (req, res, next): void => {
-    if (!schema) {
+  const middleware = createValidationMiddleware(schema, "body", errorHandler);
+  return ((req, res, next) => {
+    middleware(req, res, () => {
+      res.locals.typedBody = req.body;
       next();
-      return;
-    }
-
-    const result = schema.decode(req.body);
-
-    if (isLeft(result)) {
-      const payload = errorHandler?.(result.left) ?? {
-        errors: formatValidationErrors(result.left),
-      };
-      res.status(400).json(payload);
-      return;
-    }
-
-    req.body = result.right;
-    res.locals.typedBody = result.right;
-    next();
-  };
+    });
+  }) as TypedCombinedValidationMiddleware<any, any, B>;
 };
 
 export const validate = <Q extends t.Any, P extends t.Any, B extends t.Any>(
@@ -316,6 +287,10 @@ export const validate = <Q extends t.Any, P extends t.Any, B extends t.Any>(
   ];
 };
 
+// ============================================================================
+// Route helpers
+// ============================================================================
+
 export const validatedRoute = <T extends t.Any>(
   schema: T,
   handler: TypedBodyValidatedHandler<T>
@@ -323,58 +298,47 @@ export const validatedRoute = <T extends t.Any>(
   return [validateBody(schema), handler];
 };
 
-const validateBodyWithErrorHandler = (errorHandler: ErrorHandler) => {
-  return <T extends t.Any>(
-    schema: T,
-    handler: TypedBodyValidatedHandler<T>
-  ): TypedBodyValidationPipeline<T> => {
-    return [validateBody(schema, errorHandler), handler];
-  };
-};
+// ============================================================================
+// Validator factory
+// ============================================================================
 
-const validateQueryWithErrorHandler = (errorHandler: ErrorHandler) => {
-  return <T extends t.Any>(
-    schema: T,
-    handler: TypedQueryValidatedHandler<T>
-  ): TypedQueryValidationPipeline<T> => {
-    return [validateQuery(schema, errorHandler), handler];
-  };
-};
-
-const validateParamsWithErrorHandler = (errorHandler: ErrorHandler) => {
-  return <T extends t.Any>(
-    schema: T,
-    handler: TypedParamsValidatedHandler<T>
-  ): TypedParamsValidationPipeline<T> => {
-    return [validateParams(schema, errorHandler), handler];
-  };
-};
-
-const validateWithErrorHandler = (errorHandler: ErrorHandler) => {
-  return <Q extends t.Any, P extends t.Any, B extends t.Any>(
-    schemas: { query?: Q; params?: P; body?: B },
-    handler: TypedValidatedHandler<Q, P, B>
-  ): TypedValidationPipeline<Q, P, B> => {
-    return [
-      createCombinedQueryMiddleware(schemas.query, errorHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
-      createCombinedParamsMiddleware(schemas.params, errorHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
-      createCombinedBodyMiddleware(schemas.body, errorHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
-      handler,
-    ];
+const createValidationPipeline = (
+  validateFn: <T extends t.Any>(schema: T, errorHandler?: ErrorHandler) => any,
+  errorHandler: ErrorHandler
+) => {
+  return <S extends t.Any>(
+    schema: S,
+    handler: any
+  ): [any, any] => {
+    return [validateFn(schema, errorHandler), handler];
   };
 };
 
 export const Validator = (errorHandler?: ErrorHandler) => {
+  const errHandler = errorHandler ?? defaultErrorHandler;
   return {
-    validateBody: validateBodyWithErrorHandler(
-      errorHandler ?? defaultErrorHandler
-    ),
-    validateQuery: validateQueryWithErrorHandler(
-      errorHandler ?? defaultErrorHandler
-    ),
-    validateParams: validateParamsWithErrorHandler(
-      errorHandler ?? defaultErrorHandler
-    ),
-    validate: validateWithErrorHandler(errorHandler ?? defaultErrorHandler),
+    validateBody: createValidationPipeline(validateBody, errHandler) as <T extends t.Any>(
+      schema: T,
+      handler: TypedBodyValidatedHandler<T>
+    ) => TypedBodyValidationPipeline<T>,
+    validateQuery: createValidationPipeline(validateQuery, errHandler) as <T extends t.Any>(
+      schema: T,
+      handler: TypedQueryValidatedHandler<T>
+    ) => TypedQueryValidationPipeline<T>,
+    validateParams: createValidationPipeline(validateParams, errHandler) as <T extends t.Any>(
+      schema: T,
+      handler: TypedParamsValidatedHandler<T>
+    ) => TypedParamsValidationPipeline<T>,
+    validate: <Q extends t.Any, P extends t.Any, B extends t.Any>(
+      schemas: { query?: Q; params?: P; body?: B },
+      handler: TypedValidatedHandler<Q, P, B>
+    ): TypedValidationPipeline<Q, P, B> => {
+      return [
+        createCombinedQueryMiddleware(schemas.query, errHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
+        createCombinedParamsMiddleware(schemas.params, errHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
+        createCombinedBodyMiddleware(schemas.body, errHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
+        handler,
+      ];
+    },
   };
 };

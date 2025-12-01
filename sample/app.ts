@@ -3,7 +3,7 @@ import express from "express";
 import * as t from "io-ts";
 import { Validator } from "../src";
 
-const { validate } = Validator((error) => {
+const { validate, validateBody, validateQuery, validateParams } = Validator((error) => {
   return {
     errors: error.flatMap((err) => {
       return err.context.map((c) => ({
@@ -21,45 +21,105 @@ export const app = express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-const CODEC = t.type({
+const BODY_CODEC = t.type({
   name: t.string,
   age: t.number,
   info: t.type({
-    gender: t.string,
     email: t.string,
+    gender: t.union([t.literal("male"), t.literal("female")]),
   }),
 });
 
 app.post(
-  "/users",
-  validate(CODEC, (req, res) => {
+  "/body",
+  validateBody(BODY_CODEC, (req, res) => {
     res.json({
       name: req.body.name,
       age: req.body.age,
       info: {
-        gender: req.body.info.gender,
         email: req.body.info.email,
+        gender: req.body.info.gender,
       },
     });
   })
 );
 
-const CODEC2 = t.union([
-  t.type({
-    name: t.string,
-    age: t.number,
-  }),
-  t.type({
-    info: t.type({
-      gender: t.string,
-      email: t.string,
-    }),
-  }),
-]);
+const NUMBER_FROM_STRING = new t.Type<number, string, unknown>(
+  "NUMBER_FROM_STRING",
+  (input: unknown): input is number => {
+    return t.string.is(input) && !isNaN(Number(input));
+  },
+  (input, context) => {
+    if (typeof input !== "string") {
+      return t.failure(input, context, "Expected a number as a string");
+    }
+
+    const output = Number(input);
+    if (isNaN(output)) {
+      return t.failure(input, context, "Expected a number");
+    }
+
+    return t.success(output);
+  },
+  (input) => `${input}`
+);
+
+const QUERY_CODEC = t.type({
+  name: t.string,
+  age: NUMBER_FROM_STRING,
+});
+
+app.get(
+  "/query",
+  ...validateQuery(QUERY_CODEC, (req, res) => {
+    console.log({
+      locals: res.locals,
+      typedQuery: res.locals.typedQuery,
+    });
+    res.json({
+      name: res.locals.typedQuery.name,
+      age: res.locals.typedQuery.age,
+    });
+  })
+);
+
+const PARAMS_CODEC = t.type({
+  id: NUMBER_FROM_STRING,
+});
+
+app.get(
+  "/params/:id",
+  validateParams(PARAMS_CODEC, (req, res) => {
+    res.json({
+      id: req.params.id,
+    });
+  })
+);
+
 
 app.post(
-  "/users2",
-  validate(CODEC2, (req, res) => {
-    res.json(req.body);
+  '/full/:id',
+  ...validate({
+    query: QUERY_CODEC,
+    params: PARAMS_CODEC,
+    body: BODY_CODEC,
+  }, (req, res) => {
+    res.json({
+      query: {
+        name: res.locals.typedQuery.name,
+        age: res.locals.typedQuery.age,
+      },
+      params: {
+        id: res.locals.typedParams.id,
+      },
+      body: {
+        name: res.locals.typedBody.name,
+        age: res.locals.typedBody.age,
+        info: {
+          email: res.locals.typedBody.info.email,
+          gender: res.locals.typedBody.info.gender,
+        },
+      },
+    });
   })
 );

@@ -3,7 +3,7 @@ import express from "express";
 import * as t from "io-ts";
 import { Validator } from "../src";
 
-const { validateBody, validateQuery, validateParams } = Validator((error) => {
+const { validate, validateBody, validateQuery, validateParams } = Validator((error) => {
   return {
     errors: error.flatMap((err) => {
       return err.context.map((c) => ({
@@ -89,9 +89,37 @@ const PARAMS_CODEC = t.type({
 
 app.get(
   "/params/:id",
-  ...validateParams(PARAMS_CODEC, (req, res) => {
+  validateParams(PARAMS_CODEC, (req, res) => {
     res.json({
       id: req.params.id,
+    });
+  })
+);
+
+
+app.post(
+  '/full/:id',
+  ...validate({
+    query: QUERY_CODEC,
+    params: PARAMS_CODEC,
+    body: BODY_CODEC,
+  }, (req, res) => {
+    res.json({
+      query: {
+        name: res.locals.typedQuery.name,
+        age: res.locals.typedQuery.age,
+      },
+      params: {
+        id: res.locals.typedParams.id,
+      },
+      body: {
+        name: res.locals.typedBody.name,
+        age: res.locals.typedBody.age,
+        info: {
+          email: res.locals.typedBody.info.email,
+          gender: res.locals.typedBody.info.gender,
+        },
+      },
     });
   })
 );

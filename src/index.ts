@@ -53,6 +53,49 @@ type TypedParamsValidatedHandler<T extends t.Any> = (
   res: Response
 ) => void | Promise<void>;
 
+type TypedCombinedRequest<
+  Q extends t.Any,
+  P extends t.Any,
+  B extends t.Any
+> = Request<
+  P extends t.Any ? t.TypeOf<P> : any,
+  any,
+  B extends t.Any ? t.TypeOf<B> : any,
+  Q extends t.Any ? t.TypeOf<Q> : any
+>;
+
+type TypedCombinedResponse<
+  Q extends t.Any,
+  P extends t.Any,
+  B extends t.Any
+> = Response<
+  any,
+  {
+    typedQuery: Q extends t.Any ? t.TypeOf<Q> : never;
+    typedParams: P extends t.Any ? t.TypeOf<P> : never;
+    typedBody: B extends t.Any ? t.TypeOf<B> : never;
+  }
+>;
+
+type TypedCombinedValidationMiddleware<
+  Q extends t.Any,
+  P extends t.Any,
+  B extends t.Any
+> = (
+  req: TypedCombinedRequest<Q, P, B>,
+  res: TypedCombinedResponse<Q, P, B>,
+  next: NextFunction
+) => void;
+
+type TypedValidatedHandler<
+  Q extends t.Any,
+  P extends t.Any,
+  B extends t.Any
+> = (
+  req: TypedCombinedRequest<Q, P, B>,
+  res: TypedCombinedResponse<Q, P, B>
+) => void | Promise<void>;
+
 type TypedBodyValidationPipeline<T extends t.Any> = [
   TypedBodyValidationMiddleware<T>,
   TypedBodyValidatedHandler<T>
@@ -66,6 +109,17 @@ type TypedQueryValidationPipeline<T extends t.Any> = [
 type TypedParamsValidationPipeline<T extends t.Any> = [
   TypedParamsValidationMiddleware<T>,
   TypedParamsValidatedHandler<T>
+];
+
+type TypedValidationPipeline<
+  Q extends t.Any,
+  P extends t.Any,
+  B extends t.Any
+> = [
+  TypedCombinedValidationMiddleware<Q, P, B>,
+  TypedCombinedValidationMiddleware<Q, P, B>,
+  TypedCombinedValidationMiddleware<Q, P, B>,
+  TypedValidatedHandler<Q, P, B>
 ];
 
 const formatValidationErrors = (error: t.Errors): DefaultErrors[] => {
@@ -99,10 +153,15 @@ const defaultErrorHandler: ErrorHandler = (error) => {
 };
 
 export const validateBody = <T extends t.Any>(
-  schema: T,
+  schema?: T,
   errorHandler?: ErrorHandler
 ): TypedBodyValidationMiddleware<T> => {
   return (req, res, next): void => {
+    if (!schema) {
+      next();
+      return;
+    }
+
     const result = schema.decode(req.body);
 
     if (isLeft(result)) {
@@ -119,10 +178,15 @@ export const validateBody = <T extends t.Any>(
 };
 
 export const validateQuery = <T extends t.Any>(
-  schema: T,
+  schema?: T,
   errorHandler?: ErrorHandler
 ): TypedQueryValidationMiddleware<T> => {
   return (req, res, next): void => {
+    if (!schema) {
+      next();
+      return;
+    }
+
     const result = schema.decode(req.query);
 
     if (isLeft(result)) {
@@ -139,10 +203,15 @@ export const validateQuery = <T extends t.Any>(
 };
 
 export const validateParams = <T extends t.Any>(
-  schema: T,
+  schema?: T,
   errorHandler?: ErrorHandler
 ): TypedParamsValidationMiddleware<T> => {
   return (req, res, next): void => {
+    if (!schema) {
+      next();
+      return;
+    }
+
     const result = schema.decode(req.params);
 
     if (isLeft(result)) {
@@ -156,6 +225,95 @@ export const validateParams = <T extends t.Any>(
     req.params = result.right;
     next();
   };
+};
+
+const createCombinedQueryMiddleware = <Q extends t.Any>(
+  schema: Q | undefined,
+  errorHandler?: ErrorHandler
+): TypedCombinedValidationMiddleware<Q, any, any> => {
+  return (req, res, next): void => {
+    if (!schema) {
+      next();
+      return;
+    }
+
+    const result = schema.decode(req.query);
+
+    if (isLeft(result)) {
+      const payload = errorHandler?.(result.left) ?? {
+        errors: formatValidationErrors(result.left),
+      };
+      res.status(400).json(payload);
+      return;
+    }
+
+    res.locals.typedQuery = result.right;
+    next();
+  };
+};
+
+const createCombinedParamsMiddleware = <P extends t.Any>(
+  schema: P | undefined,
+  errorHandler?: ErrorHandler
+): TypedCombinedValidationMiddleware<any, P, any> => {
+  return (req, res, next): void => {
+    if (!schema) {
+      next();
+      return;
+    }
+
+    const result = schema.decode(req.params);
+
+    if (isLeft(result)) {
+      const payload = errorHandler?.(result.left) ?? {
+        errors: formatValidationErrors(result.left),
+      };
+      res.status(400).json(payload);
+      return;
+    }
+
+    req.params = result.right;
+    res.locals.typedParams = result.right;
+    next();
+  };
+};
+
+const createCombinedBodyMiddleware = <B extends t.Any>(
+  schema: B | undefined,
+  errorHandler?: ErrorHandler
+): TypedCombinedValidationMiddleware<any, any, B> => {
+  return (req, res, next): void => {
+    if (!schema) {
+      next();
+      return;
+    }
+
+    const result = schema.decode(req.body);
+
+    if (isLeft(result)) {
+      const payload = errorHandler?.(result.left) ?? {
+        errors: formatValidationErrors(result.left),
+      };
+      res.status(400).json(payload);
+      return;
+    }
+
+    req.body = result.right;
+    res.locals.typedBody = result.right;
+    next();
+  };
+};
+
+export const validate = <Q extends t.Any, P extends t.Any, B extends t.Any>(
+  schemas: { query?: Q; params?: P; body?: B },
+  handler: TypedValidatedHandler<Q, P, B>
+): TypedValidationPipeline<Q, P, B> => {
+  return [
+    createCombinedQueryMiddleware(schemas.query) as TypedCombinedValidationMiddleware<Q, P, B>,
+    createCombinedParamsMiddleware(schemas.params) as TypedCombinedValidationMiddleware<Q, P, B>,
+    createCombinedBodyMiddleware(schemas.body) as TypedCombinedValidationMiddleware<Q, P, B>,
+    handler,
+  ];
 };
 
 export const validatedRoute = <T extends t.Any>(
@@ -192,6 +350,20 @@ const validateParamsWithErrorHandler = (errorHandler: ErrorHandler) => {
   };
 };
 
+const validateWithErrorHandler = (errorHandler: ErrorHandler) => {
+  return <Q extends t.Any, P extends t.Any, B extends t.Any>(
+    schemas: { query?: Q; params?: P; body?: B },
+    handler: TypedValidatedHandler<Q, P, B>
+  ): TypedValidationPipeline<Q, P, B> => {
+    return [
+      createCombinedQueryMiddleware(schemas.query, errorHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
+      createCombinedParamsMiddleware(schemas.params, errorHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
+      createCombinedBodyMiddleware(schemas.body, errorHandler) as TypedCombinedValidationMiddleware<Q, P, B>,
+      handler,
+    ];
+  };
+};
+
 export const Validator = (errorHandler?: ErrorHandler) => {
   return {
     validateBody: validateBodyWithErrorHandler(
@@ -203,5 +375,6 @@ export const Validator = (errorHandler?: ErrorHandler) => {
     validateParams: validateParamsWithErrorHandler(
       errorHandler ?? defaultErrorHandler
     ),
+    validate: validateWithErrorHandler(errorHandler ?? defaultErrorHandler),
   };
 };
